@@ -2,10 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase';
 import { doc, setDoc } from 'firebase/firestore';
-import { useNavigate, Navigate } from 'react-router-dom'; // Import Navigate here
+import { useNavigate, Navigate } from 'react-router-dom';
 
 const ChooseUsername = () => {
-    const { currentUser, isUsernameTaken } = useAuth();
+    const { currentUser, isUsernameTaken, refetchUserProfile } = useAuth();
     const [username, setUsername] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -36,16 +36,19 @@ const ChooseUsername = () => {
                 return;
             }
 
-            // Create the user profile in Firestore
-            await setDoc(doc(db, "users", currentUser.uid), {
+            const profileData = {
                 username: username,
                 email: currentUser.email,
-                joinedGroups: ['main']
-            });
+                joinedGroups: []
+            };
 
-            // Reload the page. This forces the AuthProvider to re-check and find the new profile,
-            // which will then grant access to the main app.
-            window.location.reload();
+            // Create the user profile in Firestore
+            await setDoc(doc(db, "users", currentUser.uid), profileData);
+
+            // Explicitly refetch the profile before navigating to fix the loop
+            await refetchUserProfile();
+            
+            navigate('/');
 
         } catch (err) {
             setError("Failed to create profile. Please try again.");

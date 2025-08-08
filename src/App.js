@@ -11,7 +11,7 @@ import Signup from './pages/Signup';
 import Login from './pages/Login';
 import GroupPage from './pages/GroupPage';
 import ProfilePage from './pages/ProfilePage';
-import ChooseUsername from './pages/ChooseUsername'; // Import new page
+import ChooseUsername from './pages/ChooseUsername';
 
 // Component Imports
 import Header from './components/common/Header';
@@ -56,26 +56,60 @@ const BottomNav = () => {
 };
 
 
-// --- ProtectedRoute Wrapper ---
-function ProtectedRoute({ children }) {
-    const { currentUser, userProfile, loading } = useAuth();
+// --- Route Protection Wrappers ---
 
+// This wrapper protects routes that require a user to be logged in.
+function RequireAuth({ children }) {
+    const { currentUser, loading } = useAuth();
+    
     if (loading) {
-        return <div className="bg-black min-h-screen flex items-center justify-center text-white">Loading...</div>;
+        return <div className="bg-black min-h-screen flex items-center justify-center text-white">Authenticating...</div>;
     }
 
     if (!currentUser) {
         return <Navigate to="/login" />;
     }
-    
-    // If user is logged in but has no profile (e.g., new Google sign-in),
-    // redirect them to choose a username.
-    if (!userProfile) {
-        return <Navigate to="/choose-username" />;
-    }
 
     return children;
 }
+
+// This wrapper protects the main app and ensures the user has a profile.
+// It should be used INSIDE a RequireAuth wrapper.
+function RequireProfile({ children }) {
+    const { userProfile } = useAuth();
+
+    // The loading check is now handled by RequireAuth, but we wait for the profile to be defined.
+    if (userProfile === undefined) {
+        return <div className="bg-black min-h-screen flex items-center justify-center text-white">Loading Profile...</div>;
+    }
+
+    if (userProfile === null) {
+        // User is authenticated but has no profile.
+        return <Navigate to="/choose-username" />;
+    }
+
+    // User has a profile, show the app.
+    return children;
+}
+
+// This wrapper protects the choose-username page.
+// It ensures that only users WITHOUT a profile can see it.
+function NoProfile({ children }) {
+    const { userProfile } = useAuth();
+
+    if (userProfile === undefined) {
+        return <div className="bg-black min-h-screen flex items-center justify-center text-white">Checking Profile...</div>;
+    }
+
+    if (userProfile) {
+        // User already has a profile, they shouldn't be here.
+        return <Navigate to="/" />;
+    }
+    
+    // User has no profile, show the choose username page.
+    return children;
+}
+
 
 // --- Main App Layout ---
 const MainAppLayout = () => {
@@ -99,20 +133,23 @@ function App() {
                 <Route path="/signup" element={<Signup />} />
                 <Route path="/login" element={<Login />} />
                 
-                {/* Special route for new users */}
-                <Route path="/choose-username" element={<ChooseUsername />} />
-                
-                {/* Protected Routes inside the Main Layout */}
-                <Route 
-                    path="/" 
-                    element={<ProtectedRoute><MainAppLayout /></ProtectedRoute>} 
-                >
-                    <Route index element={<Feed />} />
-                    <Route path="matchday" element={<Matchday />} />
-                    <Route path="groups" element={<Groups />} />
-                    <Route path="group/:groupId" element={<GroupPage />} />
-                    <Route path="profile/:userId" element={<ProfilePage />} />
-                    <Route path="shop" element={<Shop />} />
+                {/* Routes that require authentication */}
+                <Route element={<RequireAuth><Outlet /></RequireAuth>}>
+                    <Route 
+                        path="/choose-username" 
+                        element={<NoProfile><ChooseUsername /></NoProfile>} 
+                    />
+                    <Route 
+                        path="/" 
+                        element={<RequireProfile><MainAppLayout /></RequireProfile>} 
+                    >
+                        <Route index element={<Feed />} />
+                        <Route path="matchday" element={<Matchday />} />
+                        <Route path="groups" element={<Groups />} />
+                        <Route path="group/:groupId" element={<GroupPage />} />
+                        <Route path="profile/:userId" element={<ProfilePage />} />
+                        <Route path="shop" element={<Shop />} />
+                    </Route>
                 </Route>
             </Routes>
         </Router>

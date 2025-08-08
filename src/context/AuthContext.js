@@ -18,7 +18,8 @@ export function useAuth() {
 
 export function AuthProvider({ children }) {
     const [currentUser, setCurrentUser] = useState(null);
-    const [userProfile, setUserProfile] = useState(null);
+    // We use `undefined` as the initial state to mean "not checked yet"
+    const [userProfile, setUserProfile] = useState(undefined);
     const [loading, setLoading] = useState(true);
 
     async function isUsernameTaken(username) {
@@ -31,18 +32,15 @@ export function AuthProvider({ children }) {
         if (await isUsernameTaken(username)) {
             throw new Error("This username is already taken. Please choose another.");
         }
-
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
-
         const profileData = {
             username: username,
             email: user.email,
-            joinedGroups: ['main']
+            joinedGroups: []
         };
         await setDoc(doc(db, "users", user.uid), profileData);
         setUserProfile(profileData);
-
         return userCredential;
     }
 
@@ -51,7 +49,7 @@ export function AuthProvider({ children }) {
     }
 
     function logout() {
-        setUserProfile(null);
+        setUserProfile(null); // On logout, profile is definitively null
         return signOut(auth);
     }
 
@@ -60,9 +58,12 @@ export function AuthProvider({ children }) {
         return signInWithPopup(auth, provider);
     }
 
-    // New function to manually update the profile state
-    function updateUserProfile(profileData) {
-        setUserProfile(profileData);
+    async function refetchUserProfile() {
+        if (auth.currentUser) {
+            const userDocRef = doc(db, "users", auth.currentUser.uid);
+            const userDoc = await getDoc(userDocRef);
+            setUserProfile(userDoc.exists() ? userDoc.data() : null);
+        }
     }
 
     useEffect(() => {
@@ -71,34 +72,31 @@ export function AuthProvider({ children }) {
             if (user) {
                 const userDocRef = doc(db, "users", user.uid);
                 const userDoc = await getDoc(userDocRef);
-                if (userDoc.exists()) {
-                    setUserProfile(userDoc.data());
-                } else {
-                    setUserProfile(null);
-                }
+                // If the doc exists, set the profile. If not, set it to null.
+                setUserProfile(userDoc.exists() ? userDoc.data() : null);
             } else {
                 setUserProfile(null);
             }
             setLoading(false);
         });
-
         return unsubscribe;
     }, []);
 
     const value = {
         currentUser,
         userProfile,
+        loading,
         signup,
         login,
         logout,
         signInWithGoogle,
         isUsernameTaken,
-        updateUserProfile // Expose the new function
+        refetchUserProfile
     };
 
     return (
         <AuthContext.Provider value={value}>
-            {!loading && children}
+            {children}
         </AuthContext.Provider>
     );
 }

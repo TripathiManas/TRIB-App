@@ -211,6 +211,11 @@ export const PostCard = ({ post }) => {
         football_memes: { name: 'Football Memes' },
         fantasy_pl: { name: 'r/FantasyPL' },
         kit_collectors: { name: 'Kit Collectors' },
+        la_liga: { name: 'La Liga' },
+        serie_a: { name: 'Serie A' },
+        national_teams: { name: 'National Teams' },
+        mls: { name: 'MLS' },
+        saudi_pro_league: { name: 'Saudi Pro League' },
     };
     
     const [votes, setVotes] = useState(post.upvotes || 0);
@@ -227,6 +232,8 @@ export const PostCard = ({ post }) => {
             getDoc(userDocRef).then(docSnap => {
                 if (docSnap.exists() && docSnap.data().savedPosts?.includes(id)) {
                     setIsSaved(true);
+                } else {
+                    setIsSaved(false);
                 }
             });
         }
@@ -350,6 +357,7 @@ const Feed = () => {
     const [posts, setPosts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [userGroups, setUserGroups] = useState([]);
 
     useEffect(() => {
         if (!currentUser) {
@@ -357,50 +365,44 @@ const Feed = () => {
             return;
         }
 
-        let isMounted = true;
-        let unsubscribe = () => {};
-
         const userDocRef = doc(db, "users", currentUser.uid);
-        getDoc(userDocRef).then(userDoc => {
-            if (isMounted) {
-                const joinedGroups = userDoc.exists() ? userDoc.data().joinedGroups || [] : [];
-                // Ensure 'main' is always included for the general feed
-                const groupsToQuery = Array.from(new Set(['main', ...joinedGroups]));
-
-                if (groupsToQuery.length > 0) {
-                    const q = query(
-                        collection(db, "posts"),
-                        where("groupId", "in", groupsToQuery),
-                        orderBy("createdAt", "desc")
-                    );
-
-                    unsubscribe = onSnapshot(q,
-                        (querySnapshot) => {
-                            if (isMounted) {
-                                const postsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                                setPosts(postsData);
-                                setLoading(false);
-                            }
-                        },
-                        (err) => {
-                            if (isMounted) {
-                                console.error("Firestore Error:", err);
-                                setError("Failed to load feed. You may need to create a Firestore index. Check the console for a link.");
-                                setLoading(false);
-                            }
-                        }
-                    );
-                } else {
-                    setLoading(false);
-                }
+        const unsubscribeUser = onSnapshot(userDocRef, (doc) => {
+            if (doc.exists()) {
+                setUserGroups(doc.data().joinedGroups || []);
             }
         });
 
-        return () => {
-            isMounted = false;
-            unsubscribe();
-        };
+        return () => unsubscribeUser();
     }, [currentUser]);
+
+    useEffect(() => {
+        if (userGroups.length === 0) {
+            setPosts([]);
+            setLoading(false);
+            return;
+        }
+
+        const q = query(
+            collection(db, "posts"),
+            where("groupId", "in", userGroups),
+            orderBy("createdAt", "desc")
+        );
+
+        const unsubscribePosts = onSnapshot(q,
+            (querySnapshot) => {
+                const postsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setPosts(postsData);
+                setLoading(false);
+            },
+            (err) => {
+                console.error("Firestore Error:", err);
+                setError("Failed to load feed. You may need to create a Firestore index.");
+                setLoading(false);
+            }
+        );
+
+        return () => unsubscribePosts();
+    }, [userGroups]);
 
     if (error) {
         return <p className="text-center text-red-400 p-4">{error}</p>
@@ -408,17 +410,24 @@ const Feed = () => {
 
     return (
         <div className="p-4 max-w-2xl mx-auto">
-            <CreatePost />
-            {loading && posts.length === 0 ? (
+            {loading ? (
                 <p className="text-center text-gray-400">Loading your personalized feed...</p>
             ) : (
-                <div className="space-y-3">
+                <>
                     {posts.length > 0 ? (
-                        posts.map(post => <PostCard key={post.id} post={post} />)
+                        <div className="space-y-3">
+                            {posts.map(post => <PostCard key={post.id} post={post} />)}
+                        </div>
                     ) : (
-                        <p className="text-center text-gray-500 pt-8">Your feed is empty. Join some groups or create a post!</p>
+                        <div className="text-center text-gray-500 pt-8 bg-gray-900 p-8 rounded-lg">
+                            <h2 className="text-2xl font-bold text-white mb-2">Your Feed is Empty</h2>
+                            <p className="mb-4">Join some communities to see posts from groups you care about.</p>
+                            <Link to="/groups" className="bg-green-500 text-black font-bold px-6 py-2 rounded-full hover:bg-green-400 transition">
+                                Discover Groups
+                            </Link>
+                        </div>
                     )}
-                </div>
+                </>
             )}
         </div>
     );

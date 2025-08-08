@@ -1,18 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase';
-import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, setDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayUnion, arrayRemove, collection, onSnapshot, runTransaction, increment } from 'firebase/firestore';
 import { Link } from 'react-router-dom';
 
 // --- Group Card Component ---
 const GroupCard = ({ group, userGroups, onToggleJoin }) => {
-    const { name, members, avatar, description, id } = group;
+    const { name, avatar, description, id, membersCount } = group;
     const isMember = userGroups.includes(id);
 
-    // This function stops the click from navigating when the button is pressed
     const handleJoinClick = (e) => {
-        e.preventDefault(); 
-        e.stopPropagation(); 
+        e.preventDefault();
+        e.stopPropagation();
         onToggleJoin(id, isMember);
     };
 
@@ -23,7 +22,7 @@ const GroupCard = ({ group, userGroups, onToggleJoin }) => {
                 <div>
                     <p className="font-bold text-lg">{name}</p>
                     <p className="text-sm text-gray-400">{description}</p>
-                    <p className="text-xs text-gray-500 mt-1">{members} members</p>
+                    <p className="text-xs text-gray-500 mt-1">{membersCount || 0} members</p>
                 </div>
             </div>
             <button
@@ -43,43 +42,53 @@ const GroupCard = ({ group, userGroups, onToggleJoin }) => {
 // --- Groups Page Component ---
 const Groups = () => {
     const { currentUser } = useAuth();
+    const [allGroups, setAllGroups] = useState([]);
     const [userGroups, setUserGroups] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    const recommendedGroups = [
-        { id: 'premier_league', name: 'Premier League', description: 'All things related to the English Premier League.', members: '4.2M', avatar: '🦁' },
-        { id: 'champions_league', name: 'Champions League', description: 'Europe\'s elite club competition.', members: '2.5M', avatar: '⭐' },
-        { id: 'football_memes', name: 'Football Memes', description: 'For the lighter side of the beautiful game.', members: '1.8M', avatar: '😂' },
-        { id: 'fantasy_pl', name: 'r/FantasyPL', description: 'Tips, tricks, and team reveals for FPL.', members: '890k', avatar: '📈' },
-        { id: 'kit_collectors', name: 'Kit Collectors', description: 'Showcasing classic and modern football kits.', members: '112k', avatar: '👕' },
-    ];
-
+    // Effect for fetching all groups
     useEffect(() => {
-        const fetchUserGroups = async () => {
-            if (currentUser) {
-                const userDocRef = doc(db, "users", currentUser.uid);
-                const userDoc = await getDoc(userDocRef);
-                if (userDoc.exists() && userDoc.data().joinedGroups) {
-                    setUserGroups(userDoc.data().joinedGroups);
+        const groupsQuery = collection(db, "groups");
+        const unsubscribe = onSnapshot(groupsQuery, (snapshot) => {
+            const groupsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setAllGroups(groupsData);
+            setLoading(false); // Set loading to false after fetching all groups
+        });
+        return () => unsubscribe(); // Cleanup listener on unmount
+    }, []);
+
+    // Effect for fetching the current user's joined groups
+    useEffect(() => {
+        if (currentUser) {
+            const userDocRef = doc(db, "users", currentUser.uid);
+            const unsubscribe = onSnapshot(userDocRef, (doc) => {
+                if (doc.exists()) {
+                    setUserGroups(doc.data().joinedGroups || []);
                 }
-            }
-            setLoading(false);
-        };
-        fetchUserGroups();
+            });
+            return () => unsubscribe(); // Cleanup listener on unmount
+        } else {
+            setUserGroups([]); // Clear user groups if logged out
+        }
     }, [currentUser]);
 
     const handleToggleJoin = async (groupId, isMember) => {
         if (!currentUser) return;
         const userDocRef = doc(db, "users", currentUser.uid);
+        const groupDocRef = doc(db, "groups", groupId);
 
         try {
-            if (isMember) {
-                await updateDoc(userDocRef, { joinedGroups: arrayRemove(groupId) });
-                setUserGroups(prev => prev.filter(id => id !== groupId));
-            } else {
-                await setDoc(userDocRef, { joinedGroups: arrayUnion(groupId) }, { merge: true });
-                setUserGroups(prev => [...prev, groupId]);
-            }
+            await runTransaction(db, async (transaction) => {
+                if (isMember) {
+                    // Atomically leave the group
+                    transaction.update(userDocRef, { joinedGroups: arrayRemove(groupId) });
+                    transaction.update(groupDocRef, { membersCount: increment(-1) });
+                } else {
+                    // Atomically join the group
+                    transaction.update(userDocRef, { joinedGroups: arrayUnion(groupId) });
+                    transaction.update(groupDocRef, { membersCount: increment(1) });
+                }
+            });
         } catch (error) {
             console.error("Error updating user groups: ", error);
         }
@@ -94,7 +103,7 @@ const Groups = () => {
                 <p className="text-gray-400">Join groups to discuss tactics, transfers, and more.</p>
             </div>
             <div className="space-y-4">
-                {recommendedGroups.map(group => (
+                {allGroups.map(group => (
                     <GroupCard 
                         key={group.id} 
                         group={group}

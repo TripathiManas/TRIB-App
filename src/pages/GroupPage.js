@@ -13,10 +13,16 @@ const GroupPage = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     
+    // Updated list to include all the groups you've created
     const groupDetails = {
-        premier_league: { name: 'Premier League', avatar: '🦁' },
+        premier_league: { name: 'Premier League', avatar: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
+        la_liga: { name: 'La Liga', avatar: '🇪🇸' },
+        serie_a: { name: 'Serie A', avatar: '🇮🇹' },
         champions_league: { name: 'Champions League', avatar: '⭐' },
-        football_memes: { name: 'Football Memes', avatar: '😂' },
+        national_teams: { name: 'National Teams', avatar: '🌎' },
+        mls: { name: 'MLS', avatar: '🇺🇸' },
+        saudi_pro_league: { name: 'Saudi Pro League', avatar: '🇸🇦' },
+        memes: { name: 'Football Memes', avatar: '😂' },
         fantasy_pl: { name: 'r/FantasyPL', avatar: '📈' },
         kit_collectors: { name: 'Kit Collectors', avatar: '👕' },
     };
