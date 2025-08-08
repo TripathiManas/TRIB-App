@@ -1,12 +1,14 @@
 import React, { useContext, useState, useEffect } from 'react';
-import { auth, db } from '../firebase'; // Import db
+import { auth, db } from '../firebase';
 import {
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
     signOut,
-    onAuthStateChanged
+    onAuthStateChanged,
+    GoogleAuthProvider,
+    signInWithPopup
 } from "firebase/auth";
-import { doc, setDoc } from 'firebase/firestore'; // Import Firestore functions
+import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 
 const AuthContext = React.createContext();
 
@@ -16,18 +18,30 @@ export function useAuth() {
 
 export function AuthProvider({ children }) {
     const [currentUser, setCurrentUser] = useState(null);
+    const [userProfile, setUserProfile] = useState(null);
     const [loading, setLoading] = useState(true);
 
+    async function isUsernameTaken(username) {
+        const q = query(collection(db, "users"), where("username", "==", username));
+        const querySnapshot = await getDocs(q);
+        return !querySnapshot.empty;
+    }
+
     async function signup(email, password, username) {
+        if (await isUsernameTaken(username)) {
+            throw new Error("This username is already taken. Please choose another.");
+        }
+
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
 
-        // Create a document in the 'users' collection with the joinedGroups array
-        await setDoc(doc(db, "users", user.uid), {
+        const profileData = {
             username: username,
             email: user.email,
-            joinedGroups: [] // Initialize the list of joined groups
-        });
+            joinedGroups: ['main']
+        };
+        await setDoc(doc(db, "users", user.uid), profileData);
+        setUserProfile(profileData);
 
         return userCredential;
     }
@@ -37,12 +51,34 @@ export function AuthProvider({ children }) {
     }
 
     function logout() {
+        setUserProfile(null);
         return signOut(auth);
     }
 
+    async function signInWithGoogle() {
+        const provider = new GoogleAuthProvider();
+        return signInWithPopup(auth, provider);
+    }
+
+    // New function to manually update the profile state
+    function updateUserProfile(profileData) {
+        setUserProfile(profileData);
+    }
+
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, user => {
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
             setCurrentUser(user);
+            if (user) {
+                const userDocRef = doc(db, "users", user.uid);
+                const userDoc = await getDoc(userDocRef);
+                if (userDoc.exists()) {
+                    setUserProfile(userDoc.data());
+                } else {
+                    setUserProfile(null);
+                }
+            } else {
+                setUserProfile(null);
+            }
             setLoading(false);
         });
 
@@ -51,9 +87,13 @@ export function AuthProvider({ children }) {
 
     const value = {
         currentUser,
+        userProfile,
         signup,
         login,
-        logout
+        logout,
+        signInWithGoogle,
+        isUsernameTaken,
+        updateUserProfile // Expose the new function
     };
 
     return (
