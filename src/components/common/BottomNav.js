@@ -3,7 +3,7 @@ import { Flame, Shield, Users, ShoppingCart } from 'lucide-react';
 
 const BottomNav = ({ activeTab, setActiveTab }) => {
     const navItems = [
-        { id: 'News', icon: <Flame size={24} />, label: 'News' },
+        { id: 'Feed', icon: <Flame size={24} />, label: 'Feed' },
         { id: 'Matchday', icon: <Shield size={24} />, label: 'Matchday' },
         { id: 'Groups', icon: <Users size={24} />, label: 'Groups' },
         { id: 'Shop', icon: <ShoppingCart size={24} />, label: 'Shop' },

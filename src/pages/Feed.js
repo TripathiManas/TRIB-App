@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
-import { collection, query, orderBy, onSnapshot, doc, runTransaction, addDoc, serverTimestamp, getDoc, increment, deleteDoc, updateDoc, writeBatch } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, doc, runTransaction, addDoc, serverTimestamp, getDoc, increment, deleteDoc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
-import { MessageCircle, ArrowUp, MoreHorizontal, X, Edit, Trash2 } from 'lucide-react';
+import { MessageCircle, ArrowUp, MoreHorizontal, Edit, Trash2, Bookmark } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
-// --- CreatePost Component ---
-const CreatePost = () => {
+// --- CreatePost Component (Named export) ---
+export const CreatePost = ({ groupId = "main" }) => {
     const [postText, setPostText] = useState('');
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
     const { currentUser } = useAuth();
 
     const handleSubmit = async (e) => {
@@ -15,10 +17,14 @@ const CreatePost = () => {
         if (!postText.trim() || !currentUser) return;
 
         setLoading(true);
+        setError('');
         try {
             const userDocRef = doc(db, "users", currentUser.uid);
             const userDoc = await getDoc(userDocRef);
-            const username = userDoc.exists() ? userDoc.data().username : currentUser.email;
+            
+            const username = (userDoc.exists() && userDoc.data().username) 
+                ? userDoc.data().username 
+                : currentUser.email;
 
             await addDoc(collection(db, 'posts'), {
                 text: postText,
@@ -28,26 +34,29 @@ const CreatePost = () => {
                 upvotes: 0,
                 commentsCount: 0,
                 upvotedBy: [],
+                groupId: groupId,
             });
             setPostText('');
-        } catch (error) {
-            console.error("Error creating post: ", error);
+        } catch (err) {
+            console.error("Error creating post: ", err);
+            setError(`Failed to post: ${err.message}`);
         }
         setLoading(false);
     };
 
     return (
         <div className="bg-gray-900 p-4 rounded-lg border border-gray-800 mb-4">
+            {error && <div className="bg-red-500/20 text-red-400 p-3 rounded-lg mb-4 text-sm">{error}</div>}
             <form onSubmit={handleSubmit}>
                 <textarea
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg p-2 text-white focus:outline-none focus:border-green-500"
                     rows="3"
-                    placeholder="What's on your mind?"
+                    placeholder={groupId !== 'main' ? `Post in r/${groupId}...` : "What's on your mind?"}
                     value={postText}
                     onChange={(e) => setPostText(e.target.value)}
                 />
                 <div className="text-right mt-2">
-                    <button type="submit" disabled={loading || !postText.trim()} className="bg-green-500 hover:bg-green-600 text-black font-bold py-2 px-4 rounded-lg transition duration-200 disabled:bg-gray-600 disabled:cursor-not-allowed">
+                    <button type="submit" disabled={loading || !postText.trim()} className="bg-green-500 hover:bg-green-600 text-black font-bold py-2 px-4 rounded-lg transition duration-200 disabled:bg-gray-600">
                         {loading ? 'Posting...' : 'Post'}
                     </button>
                 </div>
@@ -65,14 +74,9 @@ const Comment = ({ comment, postId }) => {
     const handleDeleteComment = async () => {
         if (window.confirm("Are you sure you want to delete this comment?")) {
             try {
-                // Delete the comment document
                 await deleteDoc(doc(db, `posts/${postId}/comments`, comment.id));
-                
-                // Decrement the commentsCount on the parent post
                 const postRef = doc(db, "posts", postId);
-                await updateDoc(postRef, {
-                    commentsCount: increment(-1)
-                });
+                await updateDoc(postRef, { commentsCount: increment(-1) });
             } catch (error) {
                 console.error("Error deleting comment: ", error);
             }
@@ -85,9 +89,7 @@ const Comment = ({ comment, postId }) => {
 
         const commentRef = doc(db, `posts/${postId}/comments`, comment.id);
         try {
-            await updateDoc(commentRef, {
-                text: editedText
-            });
+            await updateDoc(commentRef, { text: editedText });
             setIsEditing(false);
         } catch (error) {
             console.error("Error updating comment: ", error);
@@ -198,36 +200,50 @@ const CommentsSection = ({ postId }) => {
 };
 
 
-// --- PostCard Component ---
-const PostCard = ({ post }) => {
+// --- PostCard Component (Named export) ---
+export const PostCard = ({ post }) => {
     const { currentUser } = useAuth();
-    const { text, authorUsername, authorId, createdAt, id } = post;
+    const { text, authorUsername, authorId, createdAt, id, groupId } = post;
+    
+    const groupDetails = {
+        premier_league: { name: 'Premier League' },
+        champions_league: { name: 'Champions League' },
+        football_memes: { name: 'Football Memes' },
+        fantasy_pl: { name: 'r/FantasyPL' },
+        kit_collectors: { name: 'Kit Collectors' },
+    };
     
     const [votes, setVotes] = useState(post.upvotes || 0);
     const [hasVoted, setHasVoted] = useState(false);
     const [commentsVisible, setCommentsVisible] = useState(false);
     const [commentsCount, setCommentsCount] = useState(post.commentsCount || 0);
     const [showMenu, setShowMenu] = useState(false);
+    const [isSaved, setIsSaved] = useState(false);
     const menuRef = useRef(null);
 
-    // Close menu when clicking outside
     useEffect(() => {
+        if (currentUser) {
+            const userDocRef = doc(db, 'users', currentUser.uid);
+            getDoc(userDocRef).then(docSnap => {
+                if (docSnap.exists() && docSnap.data().savedPosts?.includes(id)) {
+                    setIsSaved(true);
+                }
+            });
+        }
+        
         function handleClickOutside(event) {
             if (menuRef.current && !menuRef.current.contains(event.target)) {
                 setShowMenu(false);
             }
         }
         document.addEventListener("mousedown", handleClickOutside);
-        return () => {
-            document.removeEventListener("mousedown", handleClickOutside);
-        };
-    }, [menuRef]);
-
-    useEffect(() => {
+        
         setHasVoted(post.upvotedBy?.includes(currentUser?.uid));
         setVotes(post.upvotes || 0);
         setCommentsCount(post.commentsCount || 0);
-    }, [post, currentUser]);
+
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [post, currentUser, id]);
 
     const handleUpvote = async () => {
         if (!currentUser) return;
@@ -248,16 +264,31 @@ const PostCard = ({ post }) => {
     };
     
     const handleDeletePost = async () => {
-        if (window.confirm("Are you sure you want to delete this post and all its comments?")) {
+        if (window.confirm("Are you sure you want to delete this post?")) {
             try {
-                // Firestore does not support deleting a collection from the client-side SDK directly.
-                // A better approach for production would be a Cloud Function.
-                // For now, we'll just delete the post document.
                 await deleteDoc(doc(db, "posts", id));
             } catch (error) {
                 console.error("Error deleting post: ", error);
             }
         }
+    };
+
+    const handleSavePost = async () => {
+        if (!currentUser) return;
+        const userDocRef = doc(db, 'users', currentUser.uid);
+        
+        try {
+            if (isSaved) {
+                await updateDoc(userDocRef, { savedPosts: arrayRemove(id) });
+                setIsSaved(false);
+            } else {
+                await updateDoc(userDocRef, { savedPosts: arrayUnion(id) });
+                setIsSaved(true);
+            }
+        } catch (error) {
+            console.error("Error saving post: ", error);
+        }
+        setShowMenu(false);
     };
 
     const postDate = createdAt?.toDate().toLocaleDateString("en-US", { year: 'numeric', month: 'short', day: 'numeric' });
@@ -271,16 +302,29 @@ const PostCard = ({ post }) => {
                 </div>
                 <div className="flex-grow">
                     <div className="flex justify-between items-start">
-                        <div className="text-xs text-gray-500 mb-1">
-                            <span>Posted by u/{authorUsername} • {postDate}</span>
+                        <div className="text-xs text-gray-500 mb-1 flex items-center space-x-2">
+                            {groupId && groupId !== 'main' && (
+                                <Link to={`/group/${groupId}`} className="font-bold text-white hover:underline">
+                                    r/{groupDetails[groupId]?.name || groupId}
+                                </Link>
+                            )}
+                            <Link to={`/profile/${authorId}`} className="hover:underline">
+                                <span>Posted by u/{authorUsername}</span>
+                            </Link>
+                            <span>• {postDate}</span>
                         </div>
                         <div className="relative" ref={menuRef}>
                             <MoreHorizontal size={16} className="cursor-pointer hover:text-white" onClick={() => setShowMenu(!showMenu)} />
-                            {showMenu && currentUser && currentUser.uid === authorId && (
-                                <div className="absolute right-0 mt-2 w-32 bg-gray-800 border border-gray-700 rounded-md shadow-lg z-10">
-                                    <button onClick={handleDeletePost} className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-700 flex items-center">
-                                        <Trash2 size={14} className="mr-2"/> Delete Post
+                            {showMenu && currentUser && (
+                                <div className="absolute right-0 mt-2 w-40 bg-gray-800 border border-gray-700 rounded-md shadow-lg z-10">
+                                    <button onClick={handleSavePost} className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-gray-700 flex items-center">
+                                        <Bookmark size={14} className={`mr-2 ${isSaved ? 'text-green-400' : ''}`}/> {isSaved ? 'Unsave Post' : 'Save Post'}
                                     </button>
+                                    {currentUser.uid === authorId && (
+                                        <button onClick={handleDeletePost} className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-700 flex items-center">
+                                            <Trash2 size={14} className="mr-2"/> Delete Post
+                                        </button>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -299,45 +343,85 @@ const PostCard = ({ post }) => {
     );
 };
 
-// --- News Page Component ---
-const News = () => {
+
+// --- Feed Page Component (Default Export) ---
+const Feed = () => {
+    const { currentUser } = useAuth();
     const [posts, setPosts] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
 
     useEffect(() => {
-        const q = query(collection(db, "posts"), orderBy("createdAt", "desc"));
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
-            const postsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setPosts(postsData);
+        if (!currentUser) {
             setLoading(false);
+            return;
+        }
+
+        let isMounted = true;
+        let unsubscribe = () => {};
+
+        const userDocRef = doc(db, "users", currentUser.uid);
+        getDoc(userDocRef).then(userDoc => {
+            if (isMounted) {
+                const joinedGroups = userDoc.exists() ? userDoc.data().joinedGroups || [] : [];
+                // Ensure 'main' is always included for the general feed
+                const groupsToQuery = Array.from(new Set(['main', ...joinedGroups]));
+
+                if (groupsToQuery.length > 0) {
+                    const q = query(
+                        collection(db, "posts"),
+                        where("groupId", "in", groupsToQuery),
+                        orderBy("createdAt", "desc")
+                    );
+
+                    unsubscribe = onSnapshot(q,
+                        (querySnapshot) => {
+                            if (isMounted) {
+                                const postsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                                setPosts(postsData);
+                                setLoading(false);
+                            }
+                        },
+                        (err) => {
+                            if (isMounted) {
+                                console.error("Firestore Error:", err);
+                                setError("Failed to load feed. You may need to create a Firestore index. Check the console for a link.");
+                                setLoading(false);
+                            }
+                        }
+                    );
+                } else {
+                    setLoading(false);
+                }
+            }
         });
-        return () => unsubscribe();
-    }, []);
+
+        return () => {
+            isMounted = false;
+            unsubscribe();
+        };
+    }, [currentUser]);
+
+    if (error) {
+        return <p className="text-center text-red-400 p-4">{error}</p>
+    }
 
     return (
         <div className="p-4 max-w-2xl mx-auto">
             <CreatePost />
-            {loading ? (
-                <p className="text-center text-gray-400">Loading feed...</p>
+            {loading && posts.length === 0 ? (
+                <p className="text-center text-gray-400">Loading your personalized feed...</p>
             ) : (
                 <div className="space-y-3">
-                    {posts.map(post => <PostCard key={post.id} post={post} />)}
+                    {posts.length > 0 ? (
+                        posts.map(post => <PostCard key={post.id} post={post} />)
+                    ) : (
+                        <p className="text-center text-gray-500 pt-8">Your feed is empty. Join some groups or create a post!</p>
+                    )}
                 </div>
             )}
         </div>
     );
 };
 
-export default News;
-// This component serves as the news feed page, allowing users to create posts and view others' posts.
-// It includes functionality for creating posts, upvoting, commenting, and deleting posts.
-// It uses Firestore for real-time data updates and includes a CreatePost component for submitting new posts.
-// The PostCard component displays individual posts with options to upvote, comment, and delete if the user is the author.
-// CommentsSection handles displaying and adding comments to each post, with real-time updates from Firestore.
-// The component uses Tailwind CSS for styling, ensuring a clean and responsive design.
-// The CreatePost component allows users to submit new posts, which are stored in Firestore.
-// The CommentsSection component allows users to view and add comments to posts, with real-time updates from Firestore.
-// The PostCard component displays individual posts, including the post text, author information,
-// upvote functionality, and comments. It also includes options for the post author to edit or delete their post.
-// The News component fetches posts from Firestore and renders them using the PostCard component.
-// The component uses React hooks for state management and Firestore's real-time capabilities for data updates.
+export default Feed;

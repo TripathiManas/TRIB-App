@@ -19,14 +19,14 @@ export function AuthProvider({ children }) {
     const [loading, setLoading] = useState(true);
 
     async function signup(email, password, username) {
-        // 1. Create the user with Firebase Auth
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
 
-        // 2. Create a document in the 'users' collection
+        // Create a document in the 'users' collection with the joinedGroups array
         await setDoc(doc(db, "users", user.uid), {
             username: username,
             email: user.email,
+            joinedGroups: [] // Initialize the list of joined groups
         });
 
         return userCredential;
@@ -62,6 +62,3 @@ export function AuthProvider({ children }) {
         </AuthContext.Provider>
     );
 }
-// This context provides authentication functionality for the application.
-// It includes methods for signing up, logging in, and logging out users.
-// It also manages the current user's state and listens for authentication changes.
