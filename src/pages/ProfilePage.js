@@ -14,21 +14,19 @@ const ProfilePage = () => {
     const [profileUser, setProfileUser] = useState(null);
     const [userPosts, setUserPosts] = useState([]);
     const [savedPosts, setSavedPosts] = useState([]);
-    const [activeTab, setActiveTab] = useState('posts'); // 'posts' or 'saved'
+    const [activeTab, setActiveTab] = useState('posts');
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const fetchUserData = async () => {
             setLoading(true);
             
-            // Fetch user profile data
             const userDocRef = doc(db, 'users', userId);
             const userDocSnap = await getDoc(userDocRef);
 
             if (userDocSnap.exists()) {
                 setProfileUser({ id: userDocSnap.id, ...userDocSnap.data() });
                 
-                // Fetch user's saved posts if they exist
                 const savedPostIds = userDocSnap.data().savedPosts;
                 if (savedPostIds && savedPostIds.length > 0) {
                     const savedPostsQuery = query(collection(db, 'posts'), where(documentId(), 'in', savedPostIds));
@@ -37,7 +35,6 @@ const ProfilePage = () => {
                 }
             }
 
-            // Fetch user's created posts
             const postsQuery = query(
                 collection(db, 'posts'),
                 where('authorId', '==', userId),
@@ -63,7 +60,6 @@ const ProfilePage = () => {
 
         if (window.confirm("Are you absolutely sure you want to delete your account? This will permanently erase your profile, posts, and comments. This action cannot be undone.")) {
             try {
-                // In a production app, a Cloud Function is the best way to delete all user content.
                 for (const post of userPosts) {
                     await deleteDoc(doc(db, 'posts', post.id));
                 }
@@ -112,8 +108,8 @@ const ProfilePage = () => {
         <div className="p-4 max-w-4xl mx-auto">
             <div className="bg-gray-900 p-6 rounded-lg border border-gray-800 mb-6 flex justify-between items-center">
                 <div>
+                    {/* Email address has been removed from public view */}
                     <h1 className="text-3xl font-bold">u/{profileUser.username}</h1>
-                    <p className="text-gray-400">{profileUser.email}</p>
                 </div>
                 {currentUser && currentUser.uid === userId && (
                      <button 
